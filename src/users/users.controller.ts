@@ -1,13 +1,4 @@
-/**
- * Users controller.
- *
- * Exposes HTTP endpoints for the currently logged-in user to read and
- * update their own profile. Every route here is protected by
- * `JwtAuthGuard`, meaning the caller must send a valid JWT in the
- * `Authorization: Bearer <token>` header.
- *
- * Routes live under `/users`.
- */
+
 import { Controller, Get, Patch, Body, UseGuards, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,7 +6,6 @@ import { UpdateUserDto } from './dto/update-user.dto';
 
 @Controller('users')
 export class UsersController {
-  // Nest injects `UsersService` so the controller can delegate real work.
   constructor(private usersService: UsersService) {}
 
   /**

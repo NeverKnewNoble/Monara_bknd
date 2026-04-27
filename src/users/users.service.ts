@@ -1,46 +1,44 @@
 /**
  * Users service.
  *
- * Holds all the logic for creating, finding and updating users.
- * Right now users are stored in memory (a plain array). When you add
- * a database (e.g. Postgres via Prisma/TypeORM), swap the array for
- * real DB calls — the method signatures can stay the same.
+ * Handles everything about users that lives in the database — creation,
+ * lookup, and updates. All persistence goes through `PrismaService`,
+ * which extends Prisma's `PrismaClient` and gives us typed access to the
+ * tables defined in `prisma/schema.prisma`.
+ *
+ * `PrismaModule` is `@Global()` so Nest can inject `PrismaService` here
+ * without UsersModule having to import PrismaModule explicitly.
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { v4 as uuid } from 'uuid';
-import { User } from './entities/user.entity';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  // In-memory "database". Every entry is a full User object.
-  private users: User[] = [];
+  constructor(private prisma: PrismaService) {}
 
   /**
-   * Create a new user and store it.
+   * Create a new user row in the database.
    *
-   * @param data - email, name and (already hashed) password from the caller.
-   * @returns the newly created user including its generated id & timestamps.
+   * The `id`, `createdAt` and `updatedAt` columns are filled in
+   * automatically by Prisma (see the defaults in `schema.prisma`).
+   *
+   * @param data - email, name and (already hashed) password.
+   * @returns the newly created user.
    */
-  async create(data: CreateUserDto) {
-    const user: User = {
-      id: uuid(), // Random, globally unique id.
-      ...data, // email, name, password (hashed by AuthService before this).
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    this.users.push(user);
-    return user;
+  async create (data: CreateUserDto) {
+    return this.prisma.user.create({ data });
   }
 
   /**
    * Look up a user by email. Used by AuthService during login.
    *
-   * @returns the matching user, or `undefined` if no one has that email.
+   * @returns the matching user, or `null` if no one has that email.
    */
   async findByEmail(email: string) {
-    return this.users.find((user) => user.email === email);
+    return this.prisma.user.findUnique({ where: { email } });
   }
 
   /**
@@ -49,25 +47,31 @@ export class UsersService {
    * @throws NotFoundException if no user has that id.
    */
   async findById(id: string) {
-    const user = this.users.find((user) => user.id === id);
+    const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
 
   /**
-   * Merge the provided fields into an existing user.
+   * Update the given fields on an existing user.
    *
-   * @param id   - user to update.
-   * @param data - partial set of fields to overwrite (see UpdateUserDto).
-   * @returns the updated user.
+   * Prisma automatically bumps `updatedAt` because the column is marked
+   * `@updatedAt` in the schema — we don't need to set it by hand.
+   *
+   * @throws NotFoundException if no user has that id.
    */
-  async update(id: string, data: any) {
-    const user = await this.findById(id);
-
-    // `Object.assign` copies each key from `data` onto `user`. We also
-    // bump `updatedAt` so the timestamp always reflects the latest change.
-    Object.assign(user, data, { updatedAt: new Date() });
-
-    return user;
+  async update(id: string, data: UpdateUserDto) {
+    try {
+      return await this.prisma.user.update({ where: { id }, data });
+    } catch (err) {
+      // Prisma throws P2025 ("record to update not found") when `id` doesn't exist.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        throw new NotFoundException('User not found');
+      }
+      throw err;
+    }
   }
 }
