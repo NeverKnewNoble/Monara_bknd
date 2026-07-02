@@ -9,7 +9,12 @@
  * UsersService handles actual storage/lookup of users; this service
  * just layers auth behaviour on top of it.
  */
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { UsersService } from '../users/users.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
@@ -36,12 +41,26 @@ export class AuthService {
     // bcrypt.hash(value, saltRounds). 10 is a reasonable default cost.
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const user = await this.usersService.create({
-      ...data,
-      password: hashedPassword,
-    });
+    try {
+      const user = await this.usersService.create({
+        ...data,
+        password: hashedPassword,
+      });
 
-    return this.generateToken(user);
+      return this.generateToken(user);
+    } catch (err) {
+      // Prisma throws P2002 when a unique constraint (here, `email`) is violated.
+      // Surface it as 409 Conflict so the client can show an "account already exists" message.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'An account with this email already exists',
+        );
+      }
+      throw err;
+    }
   }
 
   /**
